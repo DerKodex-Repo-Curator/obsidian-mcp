@@ -12,24 +12,55 @@ import {
 
 export const TOOL_NAME = "obsidian_manage_tags";
 
-const inputSchema = z.discriminatedUnion("operation", [
-  z
-    .object({
-      operation: z.literal("add").meta({ description: "Add tags to the selected notes" }),
-      ...addTagFields
-    })
-    .strict(),
-  z
-    .object({
-      operation: z.literal("remove").meta({ description: "Remove tags from the selected notes" }),
-      ...removeTagFields
-    })
-    .strict()
-    .refine((value) => value.tags.length > 0 || value.patterns.length > 0, {
-      path: ["tags"],
-      error: "At least one tag or pattern is required for a remove operation."
-    })
-]);
+const inputSchema = z
+  .object({
+    operation: z
+      .enum(["add", "remove"], {
+        error: "operation must be 'add' or 'remove'."
+      })
+      .meta({ description: "Whether tags are added to or removed from the selected notes" }),
+    vault: addTagFields.vault,
+    paths: addTagFields.paths,
+    tags: removeTagFields.tags.removeDefault().optional().meta({
+      description:
+        "Tags to add or remove exactly; required for add and optional when remove patterns are supplied"
+    }),
+    patterns: removeTagFields.patterns.removeDefault().optional().meta({
+      description: "Removal-only tag patterns using single '*' wildcards"
+    }),
+    location: addTagFields.location.removeDefault().optional().meta({
+      description: "Where tags are changed; defaults to frontmatter for add and both for remove"
+    }),
+    position: addTagFields.position.removeDefault().optional().meta({
+      description: "Add-only placement for inline tags; defaults to end"
+    }),
+    normalization: addTagFields.normalization,
+    include_children: removeTagFields.include_children.removeDefault().optional().meta({
+      description: "Removal-only option to also remove descendants; defaults to false"
+    }),
+    expected_etags: addTagFields.expected_etags
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.operation === "add" && (value.tags?.length ?? 0) === 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["tags"],
+        message: "At least one tag is required for an add operation."
+      });
+    }
+    if (
+      value.operation === "remove" &&
+      (value.tags?.length ?? 0) === 0 &&
+      (value.patterns?.length ?? 0) === 0
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["tags"],
+        message: "At least one tag or pattern is required for a remove operation."
+      });
+    }
+  });
 
 export function createManageTagsTool(
   runtime: Runtime
@@ -38,10 +69,18 @@ export function createManageTagsTool(
     name: TOOL_NAME,
     title: "Manage Obsidian Tags",
     description:
-      "Add or remove tags using the same transactional implementation as the dedicated tag tools.",
+      "Add or remove tags transactionally. Add requires tags; remove requires tags, patterns, or both.",
     inputSchema,
     outputSchema: tagMutationOutputSchema,
     annotations: MUTATE,
-    execute: (input) => executeTagMutation(runtime, input.operation, input)
+    execute: ({ operation, tags, patterns, location, position, include_children, ...input }) =>
+      executeTagMutation(runtime, operation, {
+        ...input,
+        tags: tags ?? [],
+        location: location ?? (operation === "add" ? "frontmatter" : "both"),
+        ...(patterns === undefined ? {} : { patterns }),
+        ...(position === undefined ? {} : { position }),
+        ...(include_children === undefined ? {} : { include_children })
+      })
   };
 }

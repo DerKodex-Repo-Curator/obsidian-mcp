@@ -8,6 +8,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 import { TOOL_NAMES } from "../../src/tools/index.js";
+import { extractTags } from "../../src/utils/tags.js";
 import { createVault } from "../helpers.js";
 
 test("modern stdio server advertises complete schemas and executes all twelve tools", async () => {
@@ -58,7 +59,15 @@ test("modern stdio server advertises complete schemas and executes all twelve to
     const manageSchema = listed.tools.find(
       (tool) => tool.name === "obsidian_manage_tags"
     )?.inputSchema;
-    assert.ok(Array.isArray(manageSchema?.oneOf));
+    assert.equal(manageSchema?.type, "object");
+    assert.equal(manageSchema?.oneOf, undefined);
+    assert.deepEqual(manageSchema?.required, ["operation", "vault", "paths"]);
+    const manageProperties = manageSchema?.properties as
+      Record<string, Record<string, unknown>> | undefined;
+    assert.ok(manageProperties);
+    for (const field of ["operation", "vault", "paths", "tags", "patterns"]) {
+      assert.ok(manageProperties[field], `obsidian_manage_tags must advertise ${field}`);
+    }
     const resources = await client.listResources();
     assert.equal(resources.resources.length, 1);
     assert.equal(resources.resources[0]?.uri, "obsidian-mcp://vaults");
@@ -101,6 +110,31 @@ test("modern stdio server advertises complete schemas and executes all twelve to
       paths: ["folder/New.md"],
       tags: ["managed"]
     });
+    let managedTags = extractTags(await fs.readFile(path.join(root, "folder/New.md"), "utf8"));
+    assert.deepEqual(
+      managedTags.filter((tag) => tag.tag === "managed").map((tag) => tag.location),
+      ["frontmatter"]
+    );
+    await success(client, "obsidian_manage_tags", {
+      operation: "add",
+      vault: "test",
+      paths: ["folder/New.md"],
+      tags: ["managed-both"],
+      location: "both"
+    });
+    managedTags = extractTags(await fs.readFile(path.join(root, "folder/New.md"), "utf8"));
+    assert.deepEqual(
+      managedTags.filter((tag) => tag.tag === "managed-both").map((tag) => tag.location),
+      ["frontmatter", "content"]
+    );
+    await success(client, "obsidian_manage_tags", {
+      operation: "remove",
+      vault: "test",
+      paths: ["folder/New.md"],
+      tags: ["managed-both"]
+    });
+    managedTags = extractTags(await fs.readFile(path.join(root, "folder/New.md"), "utf8"));
+    assert.equal(managedTags.filter((tag) => tag.tag === "managed-both").length, 0);
     await success(client, "obsidian_rename_tag", {
       vault: "test",
       old_tag: "old",

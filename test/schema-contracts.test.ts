@@ -50,6 +50,54 @@ test("tool input schemas return actionable issues and apply documented defaults"
     );
   }
 
+  const manage = findDefinition(definitions, "obsidian_manage_tags");
+  assert.equal(
+    manage.inputSchema.safeParse({
+      operation: "add",
+      vault: "test",
+      paths: ["Note.md"],
+      tags: ["project/active"]
+    }).success,
+    true
+  );
+  assert.equal(
+    manage.inputSchema.safeParse({
+      operation: "remove",
+      vault: "test",
+      paths: ["Note.md"],
+      patterns: ["project/*"]
+    }).success,
+    true
+  );
+
+  const invalidManageAdd = manage.inputSchema.safeParse({
+    operation: "add",
+    vault: "test",
+    paths: ["Note.md"]
+  });
+  assert.equal(invalidManageAdd.success, false);
+  if (!invalidManageAdd.success) {
+    assert.deepEqual(invalidManageAdd.error.issues[0]?.path, ["tags"]);
+    assert.equal(
+      invalidManageAdd.error.issues[0]?.message,
+      "At least one tag is required for an add operation."
+    );
+  }
+
+  const invalidManageRemove = manage.inputSchema.safeParse({
+    operation: "remove",
+    vault: "test",
+    paths: ["Note.md"]
+  });
+  assert.equal(invalidManageRemove.success, false);
+  if (!invalidManageRemove.success) {
+    assert.deepEqual(invalidManageRemove.error.issues[0]?.path, ["tags"]);
+    assert.equal(
+      invalidManageRemove.error.issues[0]?.message,
+      "At least one tag or pattern is required for a remove operation."
+    );
+  }
+
   const deleteNote = findDefinition(definitions, "obsidian_delete_note");
   const invalidDelete = deleteNote.inputSchema.safeParse({
     vault: "test",
