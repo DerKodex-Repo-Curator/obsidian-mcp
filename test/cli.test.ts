@@ -50,8 +50,8 @@ test("doctor reports a fail-closed lock with an exact recoverable rename command
       const failure = error as Error & { stdout?: string; stderr?: string };
       assert.equal(failure.stdout, "");
       assert.match(failure.stderr ?? "", /error \[FILESYSTEM_ERROR\]/u);
-      assert.match(failure.stderr ?? "", /\.obsidian-mcp\/locks\/write/u);
-      assert.match(failure.stderr ?? "", /mv --/u);
+      assert.match(failure.stderr ?? "", /\.obsidian-mcp[\\/]locks[\\/]write/u);
+      assert.match(failure.stderr ?? "", /mv --|Rename-Item/u);
       assert.match(failure.stderr ?? "", /\.write\.manual-/u);
       return true;
     }

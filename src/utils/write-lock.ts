@@ -239,9 +239,39 @@ export class WriteLock {
 
       const started = this.now();
       let loggedContention = false;
+      const logContention = () => {
+        if (loggedContention) return;
+        loggedContention = true;
+        this.logger.log("debug", "write_lock_contention", {
+          vault: this.vault.id,
+          lock_path: LOCK_PATH
+        });
+      };
       while (true) {
+        await this.lifecycle("before_publish", candidate);
+        const existing = await this.inspect(this.canonical);
+        if (existing.kind === "corrupt") {
+          throw this.filesystemFailure(
+            `The write lock is unsafe to replace: ${existing.reason}`,
+            existing.cause
+          );
+        }
+        if (existing.kind === "owner") {
+          logContention();
+          const liveness = this.probePid(existing.record.owner.pid);
+          if (liveness === "dead") {
+            await this.quarantineStale(existing.record);
+            continue;
+          }
+          await this.waitOrTimeout(started, existing.record.owner.pid);
+          continue;
+        }
+        if (existing.kind === "changed") {
+          await this.waitOrTimeout(started);
+          continue;
+        }
+
         try {
-          await this.lifecycle("before_publish", candidate);
           await this.rename(candidate, this.canonical);
           published = true;
           const lease = { owner, canonical: this.canonical };
@@ -273,13 +303,7 @@ export class WriteLock {
               code: error.code
             });
           }
-          if (!loggedContention) {
-            loggedContention = true;
-            this.logger.log("debug", "write_lock_contention", {
-              vault: this.vault.id,
-              lock_path: LOCK_PATH
-            });
-          }
+          logContention();
 
           const inspection = await this.inspect(this.canonical);
           if (inspection.kind === "missing" || inspection.kind === "changed") {

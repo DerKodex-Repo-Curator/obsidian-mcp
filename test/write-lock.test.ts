@@ -135,7 +135,11 @@ test("fails closed on unknown, oversized, and unexpected canonical lock state", 
           return true;
         }
       );
-      await fs.access(path.join(locksRoot, "write"));
+      const canonical = path.join(locksRoot, "write");
+      await fs.access(canonical);
+      if (fixture.name === "canonical regular file") {
+        assert.equal(await fs.readFile(canonical, "utf8"), "not a directory");
+      }
     });
   }
 });
